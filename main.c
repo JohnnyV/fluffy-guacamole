@@ -1,7 +1,10 @@
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <gsl/gsl_blas.h>
 #include <gsl/gsl_matrix.h>
+#include <gsl/gsl_rng.h>
 
 uint32_t msbFirstToLsbFirst( uint32_t n )
 {
@@ -17,10 +20,42 @@ uint32_t msbFirstToLsbFirst( uint32_t n )
     return n;
 }
 
+float sigmoid(float z)
+{
+    return 1.0f/(1.0f+exp(-z));
+}
+
+void randomizeMatrix(gsl_matrix_float * m, int x, int y) {
+  const gsl_rng_type * T;
+  gsl_rng * r;
+
+  int i, j = 0;
+
+  gsl_rng_env_setup();
+
+  T = gsl_rng_default;
+  r = gsl_rng_alloc (T);
+
+    for (i = 0; i < x; i++)
+    {
+        for (j = 0; j < y; j++)
+        {
+            float u = gsl_rng_uniform (r);
+            gsl_matrix_float_set (m, i, j, u);
+            printf ("%.5f\n", u);
+        }
+    }
+
+    gsl_rng_free (r);
+}
+
 int main()
 {
     int MATRIX_X = 28;
     int MATRIX_Y = 28;
+    int INPUT_VECTOR_SIZE = 28*28;
+    int HIDDEN_VECTOR_SIZE = 15;
+    int OUTPUT_VECTOR_SIZE = 10;
 
     FILE *trainingImagesp;
     FILE *imageLabelsp;
@@ -114,11 +149,23 @@ int main()
         header++;
     }
 
-
-
     printf("\n");
-    int i=0, j=0, matrixIdx=0;
-    gsl_matrix * m = gsl_matrix_alloc (MATRIX_X, MATRIX_Y);
+    int i=0, j=0, vec=0, matrixIdx=0;
+    //gsl_matrix * m = gsl_matrix_alloc (MATRIX_X, MATRIX_Y);
+
+    gsl_vector * input = gsl_vector_alloc(INPUT_VECTOR_SIZE);
+    gsl_matrix_float * w1 = gsl_matrix_float_alloc(INPUT_VECTOR_SIZE, HIDDEN_VECTOR_SIZE);
+    gsl_vector * hidden = gsl_vector_alloc(HIDDEN_VECTOR_SIZE);
+    gsl_matrix_float * w2 = gsl_matrix_float_alloc (HIDDEN_VECTOR_SIZE, OUTPUT_VECTOR_SIZE);
+    gsl_vector * output = gsl_vector_alloc(OUTPUT_VECTOR_SIZE);
+
+    // init weights
+    randomizeMatrix(w1, INPUT_VECTOR_SIZE, HIDDEN_VECTOR_SIZE);
+    randomizeMatrix(w2, HIDDEN_VECTOR_SIZE, OUTPUT_VECTOR_SIZE);
+
+    printf("\n%f\n", gsl_matrix_float_get (w1, INPUT_VECTOR_SIZE-1, HIDDEN_VECTOR_SIZE-1));
+    printf("\n%f\n", gsl_matrix_float_get (w2, HIDDEN_VECTOR_SIZE-1, OUTPUT_VECTOR_SIZE-1));
+
     //*
     while(1)
     {
@@ -130,8 +177,13 @@ int main()
 
         //printf("i %d, j %d, mID %d\n", i,j, matrixIdx);
 
-        gsl_matrix_set (m, i, j, c);
+        //gsl_matrix_set (m, i, j, c);
+        gsl_vector_set(input, vec, c);
+
         j++;
+        vec++;
+        vec%=INPUT_VECTOR_SIZE;
+
         if(j==28) i++;
 
         // print matrix
@@ -143,7 +195,7 @@ int main()
                 break;
             }
 
-            //*
+            /*
             //if(matrixIdx < 10) {
             printf("\nMatrix %u - %u\n", matrixIdx, c);
                 for (i = 0; i < MATRIX_X; i++)
@@ -160,6 +212,21 @@ int main()
 
             //}
             /**/
+            // input read, feed forward
+            printf("\nhidden layer result: %d\n", gsl_blas_dgemv(CblasTrans, 1, w1, input, 1, hidden));
+            printf("\noutput layer result: %d\n", gsl_blas_dgemv(CblasTrans, 1, w2, hidden, 1, output));
+
+            printf("\n[%.2f, %.2f, %.2f, %.2f, %.2f, %.2f, %.2f, %.2f, %.2f, %.2f]",
+            gsl_vector_float_get(output, 0),
+            gsl_vector_float_get(output, 1),
+            gsl_vector_float_get(output, 2),
+            gsl_vector_float_get(output, 3),
+            gsl_vector_float_get(output, 4),
+            gsl_vector_float_get(output, 5),
+            gsl_vector_float_get(output, 6),
+            gsl_vector_float_get(output, 7),
+            gsl_vector_float_get(output, 8),
+            gsl_vector_float_get(output, 9));
             matrixIdx++;
         }
 
@@ -172,7 +239,8 @@ int main()
     /**/
     fclose(trainingImagesp);
 
-    gsl_matrix_free (m);
+    //gsl_matrix_free (m);
+    gsl_vector_free(input);
 
     printf("matrixIdx %d", matrixIdx);
 
