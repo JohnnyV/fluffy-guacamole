@@ -25,7 +25,12 @@ float sigmoid(float z)
     return 1.0f/(1.0f+exp(-z));
 }
 
-void randomizeMatrix(gsl_matrix_float * m, int x, int y) {
+float sigmoid_derivative(float z)
+{
+    return sigmoid(z)*(1-sigmoid(z));
+}
+
+void randomizeMatrix(gsl_matrix * m, int x, int y) {
   const gsl_rng_type * T;
   gsl_rng * r;
 
@@ -41,7 +46,7 @@ void randomizeMatrix(gsl_matrix_float * m, int x, int y) {
         for (j = 0; j < y; j++)
         {
             float u = gsl_rng_uniform (r);
-            gsl_matrix_float_set (m, i, j, u);
+            gsl_matrix_set (m, i, j, u);
             printf ("%.5f\n", u);
         }
     }
@@ -49,226 +54,108 @@ void randomizeMatrix(gsl_matrix_float * m, int x, int y) {
     gsl_rng_free (r);
 }
 
+
+float error_func_total(gsl_vector * actual, gsl_vector * result) {
+    float err = 0;
+    int i = 0;
+    for(i=0; i<actual->size; i++) {
+        err+=powf(gsl_vector_get(actual,i)-gsl_vector_get(result,i), 2);
+    }
+    return err/2.0f;
+}
+
 int main()
 {
     int MATRIX_X = 28;
     int MATRIX_Y = 28;
-    int INPUT_VECTOR_SIZE = 28*28;
-    int HIDDEN_VECTOR_SIZE = 15;
-    int OUTPUT_VECTOR_SIZE = 10;
+    int INPUT_VECTOR_SIZE = 3;
+    int HIDDEN_VECTOR_SIZE = 2;
+    int OUTPUT_VECTOR_SIZE = 3;
+    float LEARNING_RATE = 0.01f;
 
-    FILE *trainingImagesp;
-    FILE *imageLabelsp;
+    char inputs[] = {2, 3, 0};
+    float matrixW1[] = {0.1,0.9, 0.3,0.4, 0.8,0.5};
 
-    unsigned char c;
-
-    //trainingImagesp = fopen("train-images-idx3-ubyte", "r");
-    //imageLabelsp = fopen("train-labels-idx1-ubyte", "r");
-    trainingImagesp = fopen("t10k-images-idx3-ubyte", "r");
-    imageLabelsp = fopen("t10k-labels-idx1-ubyte", "r");
-
-    sleep(2);
-
-    // Reading images header
-    uint32_t op;
-    int header = 0;
-    while(1)
-    {
-        //fread(&c,sizeof(c),1,trainingImagesp);
-        fread(&op, sizeof(op), 1, trainingImagesp);
-        //c = fgetc(trainingImagesp);
-        if( feof(trainingImagesp) )
-        {
-            break;
-        }
-
-        op = msbFirstToLsbFirst(op);
-        printf("Label %u - %u ",header,op);
-        /*
-        d or i	Signed decimal integer	392
-        u	Unsigned decimal integer	7235
-        o	Unsigned octal	610
-        x	Unsigned hexadecimal integer	7fa
-        X	Unsigned hexadecimal integer (uppercase)	7FA
-        f	Decimal floating point, lowercase	392.65
-        F	Decimal floating point, uppercase	392.65
-        e	Scientific notation (mantissa/exponent), lowercase	3.9265e+2
-        E	Scientific notation (mantissa/exponent), uppercase	3.9265E+2
-        g	Use the shortest representation: %e or %f	392.65
-        G	Use the shortest representation: %E or %F	392.65
-        a	Hexadecimal floating point, lowercase	-0xc.90fep-2
-        A	Hexadecimal floating point, uppercase	-0XC.90FEP-2
-        c	Character	a
-        s	String of characters	sample
-        p	Pointer address	b8000000
-        /**/
-        if( header == 3 )
-        {
-            break;
-        }
-        header++;
-    }
-
-    header = 0;
-
-    // Reading labels header
-    while(1)
-    {
-        fread(&op, sizeof(op), 1, imageLabelsp);
-        //c = fgetc(imageLabelsp);
-        if( feof(imageLabelsp) )
-        {
-            break;
-        }
-
-        op = msbFirstToLsbFirst(op);
-        printf("\n\n");
-        printf("Label %u - %u ",header,op);
-        /*
-        d or i	Signed decimal integer	392
-        u	Unsigned decimal integer	7235
-        o	Unsigned octal	610
-        x	Unsigned hexadecimal integer	7fa
-        X	Unsigned hexadecimal integer (uppercase)	7FA
-        f	Decimal floating point, lowercase	392.65
-        F	Decimal floating point, uppercase	392.65
-        e	Scientific notation (mantissa/exponent), lowercase	3.9265e+2
-        E	Scientific notation (mantissa/exponent), uppercase	3.9265E+2
-        g	Use the shortest representation: %e or %f	392.65
-        G	Use the shortest representation: %E or %F	392.65
-        a	Hexadecimal floating point, lowercase	-0xc.90fep-2
-        A	Hexadecimal floating point, uppercase	-0XC.90FEP-2
-        c	Character	a
-        s	String of characters	sample
-        p	Pointer address	b8000000
-        /**/
-        if( header == 1 )
-        {
-            break;
-        }
-        header++;
-    }
-
-    printf("\n");
-    int i=0, j=0, vec=0, matrixIdx=0;
-    //gsl_matrix * m = gsl_matrix_alloc (MATRIX_X, MATRIX_Y);
+    float matrixW2[] = {0.3,0.4,0.1, 0.8,0.7,0.5};
 
     gsl_vector * input = gsl_vector_alloc(INPUT_VECTOR_SIZE);
-    gsl_matrix_float * w1 = gsl_matrix_float_alloc(INPUT_VECTOR_SIZE, HIDDEN_VECTOR_SIZE);
+    gsl_matrix * w1 = gsl_matrix_alloc(INPUT_VECTOR_SIZE, HIDDEN_VECTOR_SIZE);
+
     gsl_vector * hidden = gsl_vector_alloc(HIDDEN_VECTOR_SIZE);
-    gsl_matrix_float * w2 = gsl_matrix_float_alloc (HIDDEN_VECTOR_SIZE, OUTPUT_VECTOR_SIZE);
+    gsl_matrix * w2 = gsl_matrix_alloc (HIDDEN_VECTOR_SIZE, OUTPUT_VECTOR_SIZE);
     gsl_vector * output = gsl_vector_alloc(OUTPUT_VECTOR_SIZE);
+    gsl_vector * expected_output = gsl_vector_alloc(OUTPUT_VECTOR_SIZE);
+
+    gsl_vector_set(input, 0, 2);
+    gsl_vector_set(input, 1, 3);
+    gsl_vector_set(input, 2, 0);
+
+    gsl_vector_set(expected_output, 0, 3);
+    gsl_vector_set(expected_output, 1, 2.5);
+    gsl_vector_set(expected_output, 2, 1.5);
 
     // init weights
-    randomizeMatrix(w1, INPUT_VECTOR_SIZE, HIDDEN_VECTOR_SIZE);
-    randomizeMatrix(w2, HIDDEN_VECTOR_SIZE, OUTPUT_VECTOR_SIZE);
+    gsl_matrix_set(w1, 0, 0, matrixW1[0]);
+    gsl_matrix_set(w1, 0, 1, matrixW1[1]);
+    gsl_matrix_set(w1, 1, 0, matrixW1[2]);
+    gsl_matrix_set(w1, 1, 1, matrixW1[3]);
+    gsl_matrix_set(w1, 2, 0, matrixW1[4]);
+    gsl_matrix_set(w1, 2, 1, matrixW1[5]);
 
-    printf("\n%f\n", gsl_matrix_float_get (w1, INPUT_VECTOR_SIZE-1, HIDDEN_VECTOR_SIZE-1));
-    printf("\n%f\n", gsl_matrix_float_get (w2, HIDDEN_VECTOR_SIZE-1, OUTPUT_VECTOR_SIZE-1));
+    gsl_matrix_set(w2, 0, 0, matrixW2[0]);
+    gsl_matrix_set(w2, 0, 1, matrixW2[1]);
+    gsl_matrix_set(w2, 0, 2, matrixW2[2]);
+    gsl_matrix_set(w2, 1, 0, matrixW2[3]);
+    gsl_matrix_set(w2, 1, 1, matrixW2[4]);
+    gsl_matrix_set(w2, 1, 2, matrixW2[5]);
 
-    //*
-    while(1)
-    {
-        fread(&c, sizeof(c), 1, trainingImagesp);
-        if( feof(trainingImagesp) )
-        {
-            break;
-        }
+    printf("\n");
+    printf("%.2f\n", gsl_matrix_get(w1, 0, 0));
+    printf("%.2f\n", gsl_matrix_get(w1, 0, 1));
+    printf("%.2f\n", gsl_matrix_get(w1, 1, 0));
+    printf("%.2f\n", gsl_matrix_get(w1, 1, 1));
+    printf("%.2f\n", gsl_matrix_get(w1, 2, 0));
+    printf("%.2f\n", gsl_matrix_get(w1, 2, 1));
 
-        //printf("i %d, j %d, mID %d\n", i,j, matrixIdx);
+    printf("%.2f\n", gsl_matrix_get(w2, 0, 0));
+    printf("%.2f\n", gsl_matrix_get(w2, 0, 1));
+    printf("%.2f\n", gsl_matrix_get(w2, 0, 2));
+    printf("%.2f\n", gsl_matrix_get(w2, 1, 0));
+    printf("%.2f\n", gsl_matrix_get(w2, 1, 1));
+    printf("%.2f\n", gsl_matrix_get(w2, 1, 2));
 
-        //gsl_matrix_set (m, i, j, c);
-        gsl_vector_set(input, vec, c);
+    // input read, feed forward
+    gsl_blas_dgemv(CblasTrans, 1.0, w1, input, 0.0, hidden);
+    //printf("\nhidden layer result: %d\n", );
+    printf("\nHidden vector: [%.2f, %.2f]\n",
+    gsl_vector_get(hidden, 0),
+    gsl_vector_get(hidden, 1));
 
-        j++;
-        vec++;
-        vec%=INPUT_VECTOR_SIZE;
+    gsl_blas_dgemv(CblasTrans, 1.0, w2, hidden, 0.0, output);
+    printf("\nOutput vector: [%.2f, %.2f, %.2f]",
+    gsl_vector_get(output, 0),
+    gsl_vector_get(output, 1),
+    gsl_vector_get(output, 2));
 
-        if(j==28) i++;
+    printf("\nError: %.2f\n", error_func_total(expected_output, output));
 
-        // print matrix
-        if (i == 28)
-        {
-            fread(&c, sizeof(c), 1, imageLabelsp);
-            if( feof(imageLabelsp) )
-            {
-                break;
-            }
-
-            /*
-            //if(matrixIdx < 10) {
-            printf("\nMatrix %u - %u\n", matrixIdx, c);
-                for (i = 0; i < MATRIX_X; i++)
-                {
-                    for (j = 0; j < MATRIX_Y; j++)
-                    {
-                        if((char)gsl_matrix_get (m, i, j) > 0)
-                            printf ("%03u", (char)gsl_matrix_get (m, i, j));
-                        else
-                            printf("   ");
-                    }
-                    printf ("\n");
-                }
-
-            //}
-            /**/
-            // input read, feed forward
-            printf("\nhidden layer result: %d\n", gsl_blas_dgemv(CblasTrans, 1, w1, input, 1, hidden));
-            printf("\noutput layer result: %d\n", gsl_blas_dgemv(CblasTrans, 1, w2, hidden, 1, output));
-
-            printf("\n[%.2f, %.2f, %.2f, %.2f, %.2f, %.2f, %.2f, %.2f, %.2f, %.2f]",
-            gsl_vector_float_get(output, 0),
-            gsl_vector_float_get(output, 1),
-            gsl_vector_float_get(output, 2),
-            gsl_vector_float_get(output, 3),
-            gsl_vector_float_get(output, 4),
-            gsl_vector_float_get(output, 5),
-            gsl_vector_float_get(output, 6),
-            gsl_vector_float_get(output, 7),
-            gsl_vector_float_get(output, 8),
-            gsl_vector_float_get(output, 9));
-            matrixIdx++;
-        }
-
-        i%=MATRIX_X;
-        j%=MATRIX_Y;
-    }
-
-    printf("\ni %d, j %d, mID %d\n", i,j, matrixIdx);
-
-    /**/
-    fclose(trainingImagesp);
-
-    //gsl_matrix_free (m);
-    gsl_vector_free(input);
-
-    printf("matrixIdx %d", matrixIdx);
-
-/*
-    int labelCount = 0;
-    while(1)
-    {
-        c = fgetc(imageLabelsp);
-
-        if( feof(imageLabelsp) )
-        {
-            break;
-        }
-        printf("%i", c);
-        labelCount++;
-    }
-    printf ("\nlength of labels = %zu\n", labelCount);
-    /**/
-    fclose(imageLabelsp);
-
-
-    //gsl_block * b = gsl_block_alloc (100);
-
-    //printf ("length of block = %zu\n", b->size);
-    //printf ("block data address = %p\n", b->data);
-    //gsl_block_free (b);
+    float diff = 0;
+    //diff = sigmoid_derivative(error_func_total(expected_output, output));
+    diff = gsl_vector_get(expected_output, 0) - gsl_vector_get(output, 0);
+    printf("\ndiff %.2f\n", diff);
+    printf("\nDiff: %.2f\n", diff*gsl_matrix_get(w2, 0, 0));
+    printf("\nDiff: %.2f\n", diff*gsl_matrix_get(w2, 1, 0));
+    diff = gsl_vector_get(expected_output, 1) - gsl_vector_get(output, 1);
+    printf("\ndiff %.2f\n", diff);
+    printf("\nDiff: %.2f\n", diff*gsl_matrix_get(w2, 0, 1));
+    printf("\nDiff: %.2f\n", diff*gsl_matrix_get(w2, 1, 1));
+    diff = gsl_vector_get(expected_output, 2) - gsl_vector_get(output, 2);
+    printf("\ndiff %.2f\n", diff);
+    printf("\nDiff: %.2f\n", diff*gsl_matrix_get(w2, 0, 2));
+    printf("\nDiff: %.2f\n", diff*gsl_matrix_get(w2, 1, 2));
 
     return 0;
 }
+
 
 
